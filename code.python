@@ -1,0 +1,64 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import euclidean_distances
+from tensorflow.keras.datasets import fashion_mnist
+from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications.resnet50 import preprocess_input
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import GlobalAveragePooling2D
+
+# 1. Carregar o conjunto de dados (Fashion MNIST)
+(train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
+
+# Filtrar apenas as categorias de interesse: camisas (0), calças (1), tênis (7) e bolsas (8)
+categories = [0, 1, 7, 8]
+filter_indices = np.isin(train_labels, categories)
+train_images = train_images[filter_indices]
+train_labels = train_labels[filter_indices]
+
+# Redimensionar imagens para 3 canais e 224x224 (requerido pela ResNet)
+def preprocess_images(images):
+    images = np.stack([images] * 3, axis=-1)  # Adiciona canais de cor
+    images = np.array([np.resize(img, (224, 224, 3)) for img in images])
+    images = preprocess_input(images)  # Pré-processamento para ResNet
+    return images
+
+train_images_resized = preprocess_images(train_images[:1000])  # Usar 1000 imagens para teste
+
+# 2. Usar ResNet50 pré-treinada para extração de características
+base_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
+model = Model(inputs=base_model.input, outputs=GlobalAveragePooling2D()(base_model.output))
+
+# Extração de embeddings (características visuais)
+embeddings = model.predict(train_images_resized)
+
+# 3. Função para recomendar imagens semelhantes
+def recommend_similar_images(query_image_index, embeddings, top_n=5):
+    query_embedding = embeddings[query_image_index].reshape(1, -1)
+    distances = euclidean_distances(query_embedding, embeddings).flatten()
+    similar_indices = np.argsort(distances)[:top_n + 1]  # +1 para incluir a própria imagem
+    return similar_indices[1:]  # Excluir a própria imagem
+
+# 4. Visualizar resultados
+def plot_similar_images(query_image_index, similar_indices):
+    plt.figure(figsize=(10, 5))
+
+    # Exibir imagem de consulta
+    plt.subplot(1, len(similar_indices) + 1, 1)
+    plt.imshow(train_images[query_image_index], cmap="gray")
+    plt.title(f"Consulta ({train_labels[query_image_index]})")
+    plt.axis("off")
+
+    # Exibir imagens recomendadas
+    for i, idx in enumerate(similar_indices):
+        plt.subplot(1, len(similar_indices) + 1, i + 2)
+        plt.imshow(train_images[idx], cmap="gray")
+        plt.title(f"Similar {i+1} ({train_labels[idx]})")
+        plt.axis("off")
+
+    plt.show()
+
+# Testar o sistema
+query_index = 10  # Índice da imagem de consulta
+similar_images = recommend_similar_images(query_index, embeddings)
+plot_similar_images(query_index, similar_images)
